@@ -1,6 +1,6 @@
 #version 430 core
 
-in vec3 position;
+in layout(location=0) vec3 position;
 
 void main()
 {

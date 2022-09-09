@@ -2,4 +2,5 @@ target/
 .vscode/
 *.pdf
 *.html
+*.log
 source.zip
