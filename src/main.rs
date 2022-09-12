@@ -28,6 +28,55 @@ use glutin::event_loop::ControlFlow;
 const INITIAL_SCREEN_W: u32 = 800;
 const INITIAL_SCREEN_H: u32 = 600;
 
+#[repr(C)]
+struct Vertex {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+impl Vertex {
+    fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
+}
+
+trait Index {}
+
+#[repr(C)]
+struct TriangleIndex {
+    v1: u32,
+    v2: u32,
+    v3: u32,
+}
+
+impl TriangleIndex {
+    fn new(v1: u32, v2: u32, v3: u32) -> Self {
+        Self { v1, v2, v3 }
+    }
+}
+
+impl Index for TriangleIndex {}
+
+#[repr(C)]
+struct Rgba {
+    red: f32,
+    green: f32,
+    blue: f32,
+    alpha: f32,
+}
+
+impl Rgba {
+    fn new(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha,
+        }
+    }
+}
+
 // == // Helper functions to make interacting with OpenGL a little bit prettier. You *WILL* need these! // == //
 
 // Get the size of an arbitrary array of numbers measured in bytes
@@ -67,7 +116,7 @@ unsafe fn buffer_with_data<T>(target: gl::types::GLenum, data: &[T]) -> u32 {
 }
 
 // == // Generate your VAO here
-unsafe fn create_vao(vertices: &Vec<f32>, indices: &Vec<u32>) -> u32 {
+unsafe fn create_vao<T: Index>(vertices: &[Vertex], indices: &[T], colors: &[Rgba]) -> u32 {
     // Implement me!
     let mut vao_id = 0;
     gl::GenVertexArrays(1, &mut vao_id);
@@ -153,24 +202,25 @@ fn main() {
 
         // Create the VAO
         let verts = vec![
-            -0.1, -0.1, 0.0,
-            0.1, -0.1, 0.0,
-            0.1, 0.1, 0.0,
-            -0.1, 0.1, 0.0,
-            0.0, 0.8, 0.0,
-            -0.8, 0.0, 0.0,
-            0.0, -0.8, 0.0,
-            0.8, 0.0, 0.0,
+            Vertex::new(-0.1, -0.1, 0.0),
+            Vertex::new(0.1, -0.1, 0.0),
+            Vertex::new(0.1, 0.1, 0.0),
+            Vertex::new(-0.1, 0.1, 0.0),
+            Vertex::new(0.0, 0.8, 0.0),
+            Vertex::new(-0.8, 0.0, 0.0),
+            Vertex::new(0.0, -0.8, 0.0),
+            Vertex::new(0.8, 0.0, 0.0),
         ];
         let indices = vec![
-            3, 0, 2,
-            2, 0, 1,
-            0, 6, 1,
-            3, 5, 0,
-            4, 3, 2,
-            2, 1, 7,
+            TriangleIndex::new(3, 0, 2),
+            TriangleIndex::new(2, 0, 1),
+            TriangleIndex::new(0, 6, 1),
+            TriangleIndex::new(3, 5, 0),
+            TriangleIndex::new(4, 3, 2),
+            TriangleIndex::new(2, 1, 7),
         ];
-        let my_vao = unsafe { create_vao(&verts, &indices) };
+        let colors = vec![Rgba::new(0.0, 0.0, 0.0, 0.0)];
+        let my_vao = unsafe { create_vao(&verts, &indices, &colors) };
 
         // Setup the simple shader
         let _simple_shader = unsafe {
