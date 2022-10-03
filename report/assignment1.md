@@ -20,7 +20,7 @@ links-as-notes: true
 
 See the corresponding figure.
 
-![The rendered scene of task 1c).](images/task1.png)
+![The rendered scene of task 1c).](images/as1/task1.png)
 
 # Task 2
 
@@ -32,7 +32,7 @@ such that it fits inside the cube. Since two of the vertices in the triangle are
 this box ($v_0$ and $v_2$), we see this clipping behaviour on two of the corners of the triangle.
 Clipping is a performance optimization which avoids rendering shapes that are outside of the camera's view.
 
-![The rendered scene of task 2a).](images/task2a.png)
+![The rendered scene of task 2a).](images/as1/task2a.png)
 
 ## b)
 
@@ -43,7 +43,7 @@ vertices are drawn counter-clockwise, the triangle is facing towards the camera.
 clockwise, then the triangle will be facing away from the camera.
 
 ![The renderec scene of task 2b). This is the triangle from task 1c), but with the last two
-indices swapped](images/task2b.png)
+indices swapped](images/as1/task2b.png)
 
 ## c)
 
@@ -69,11 +69,11 @@ To flip the scene vertically and horizontally I negated each component of the po
 To color the triangle I used the vertices' x and y positions as inputs to the fragment shader to make
 a gradient effect.
 
-![The rendered scene of task 2d) before modifying the shaders.](images/task2d_1.png)
+![The rendered scene of task 2d) before modifying the shaders.](images/as1/task2d_1.png)
 
-![The rendered scene of task 2d) after modifying the vertex shader.](images/task2d_2.png)
+![The rendered scene of task 2d) after modifying the vertex shader.](images/as1/task2d_2.png)
 
-![The rendered scene of task 2d) after modifying the fragment shader.](images/task2d_3.png)
+![The rendered scene of task 2d) after modifying the fragment shader.](images/as1/task2d_3.png)
 
 # Task 3
 
@@ -81,4 +81,4 @@ a gradient effect.
 
 See the corresponding figure for my implementation.
 
-![The rendered scene of task 3a).](images/task3.png)
+![The rendered scene of task 3a).](images/as1/task3.png)

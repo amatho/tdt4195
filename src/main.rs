@@ -123,9 +123,12 @@ unsafe fn create_vao<T: Index>(vertices: &[Vertex], indices: &[T], colors: &[Rgb
     gl::BindVertexArray(vao_id);
 
     buffer_with_data(gl::ARRAY_BUFFER, vertices);
-
     gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, ptr::null());
     gl::EnableVertexAttribArray(0);
+
+    buffer_with_data(gl::ARRAY_BUFFER, colors);
+    gl::VertexAttribPointer(1, 4, gl::FLOAT, gl::FALSE, 0, ptr::null());
+    gl::EnableVertexAttribArray(1);
 
     buffer_with_data(gl::ELEMENT_ARRAY_BUFFER, indices);
 
@@ -136,7 +139,7 @@ fn main() {
     // Set up the necessary objects to deal with windows and event handling
     let el = glutin::event_loop::EventLoop::new();
     let wb = glutin::window::WindowBuilder::new()
-        .with_title("Gloom-rs")
+        .with_title("ama's fancy OpenGL scene")
         .with_resizable(true)
         .with_inner_size(glutin::dpi::LogicalSize::new(
             INITIAL_SCREEN_W,
@@ -200,26 +203,36 @@ fn main() {
             );
         }
 
-        // Create the VAO
+        // Vertices for the three triangles.
+        // The z-coordinates take the perspective projection into account (they were the opposite way around
+        // before introducing the perspective projection).
         let verts = vec![
-            Vertex::new(-0.1, -0.1, 0.0),
-            Vertex::new(0.1, -0.1, 0.0),
-            Vertex::new(0.1, 0.1, 0.0),
-            Vertex::new(-0.1, 0.1, 0.0),
-            Vertex::new(0.0, 0.8, 0.0),
-            Vertex::new(-0.8, 0.0, 0.0),
-            Vertex::new(0.0, -0.8, 0.0),
-            Vertex::new(0.8, 0.0, 0.0),
+            Vertex::new(0.0, 0.9, -0.5),
+            Vertex::new(-0.7, -0.5, -0.5),
+            Vertex::new(0.7, -0.5, -0.5),
+            Vertex::new(0.0, 0.4, 0.0),
+            Vertex::new(-0.5, -0.7, 0.0),
+            Vertex::new(0.5, -0.7, 0.0),
+            Vertex::new(0.5, 0.4, 0.5),
+            Vertex::new(-0.5, 0.4, 0.5),
+            Vertex::new(0.0, -0.7, 0.5),
         ];
         let indices = vec![
-            TriangleIndex::new(3, 0, 2),
-            TriangleIndex::new(2, 0, 1),
-            TriangleIndex::new(0, 6, 1),
-            TriangleIndex::new(3, 5, 0),
-            TriangleIndex::new(4, 3, 2),
-            TriangleIndex::new(2, 1, 7),
+            TriangleIndex::new(0, 1, 2),
+            TriangleIndex::new(3, 4, 5),
+            TriangleIndex::new(6, 7, 8),
         ];
-        let colors = vec![Rgba::new(0.0, 0.0, 0.0, 0.0)];
+        let colors = vec![
+            Rgba::new(1.0, 0.0, 0.0, 0.5),
+            Rgba::new(1.0, 0.0, 0.0, 0.5),
+            Rgba::new(1.0, 0.0, 0.0, 0.5),
+            Rgba::new(0.0, 0.0, 1.0, 0.5),
+            Rgba::new(0.0, 0.0, 1.0, 0.5),
+            Rgba::new(0.0, 0.0, 1.0, 0.5),
+            Rgba::new(0.0, 1.0, 0.0, 0.5),
+            Rgba::new(0.0, 1.0, 0.0, 0.5),
+            Rgba::new(0.0, 1.0, 0.0, 0.5),
+        ];
         let my_vao = unsafe { create_vao(&verts, &indices, &colors) };
 
         // Setup the simple shader
@@ -232,8 +245,13 @@ fn main() {
             s
         };
 
-        // Used to demonstrate keyboard handling for exercise 2.
-        let mut _arbitrary_number = 0.0; // feel free to remove
+        let perspective: glm::Mat4 = glm::perspective(window_aspect_ratio, 1.2915, 1.0, 100.0);
+
+        let mut translate_x = 0.0;
+        let mut translate_y = 0.0;
+        let mut translate_z = -3.0;
+        let mut rotate_x = 0.0;
+        let mut rotate_y: f32 = 0.0;
 
         // The main rendering loop
         let first_frame_time = std::time::Instant::now();
@@ -265,12 +283,41 @@ fn main() {
                         // The `VirtualKeyCode` enum is defined here:
                         //    https://docs.rs/winit/0.25.0/winit/event/enum.VirtualKeyCode.html
                         VirtualKeyCode::A => {
-                            _arbitrary_number += delta_time;
+                            translate_x += delta_time * rotate_y.cos();
+                            translate_z += delta_time * rotate_y.sin();
                         }
                         VirtualKeyCode::D => {
-                            _arbitrary_number -= delta_time;
+                            translate_x -= delta_time * rotate_y.cos();
+                            translate_z -= delta_time * rotate_y.sin();
                         }
-
+                        VirtualKeyCode::W => {
+                            translate_x -= delta_time * rotate_y.sin();
+                            translate_z += delta_time * rotate_y.cos();
+                        }
+                        VirtualKeyCode::S => {
+                            translate_x += delta_time * rotate_y.sin();
+                            translate_z -= delta_time * rotate_y.cos();
+                        }
+                        VirtualKeyCode::Space => {
+                            translate_y -= delta_time;
+                        }
+                        VirtualKeyCode::LShift => {
+                            translate_y += delta_time;
+                        }
+                        VirtualKeyCode::Left => {
+                            rotate_y -= delta_time;
+                        }
+                        VirtualKeyCode::Right => {
+                            rotate_y += delta_time;
+                        }
+                        VirtualKeyCode::Up => {
+                            rotate_x -= delta_time;
+                            rotate_x = rotate_x.clamp(-std::f32::consts::PI, std::f32::consts::PI);
+                        }
+                        VirtualKeyCode::Down => {
+                            rotate_x += delta_time;
+                            rotate_x = rotate_x.clamp(-std::f32::consts::PI, std::f32::consts::PI);
+                        }
                         // default handler:
                         _ => {}
                     }
@@ -285,6 +332,14 @@ fn main() {
             }
 
             // == // Please compute camera transforms here (exercise 2 & 3)
+            let translation = glm::translation(&glm::vec3(translate_x, translate_y, translate_z));
+            let rotation_y = glm::rotation(rotate_y, &glm::vec3(0.0, 1.0, 0.0));
+            let rotation_x = glm::rotation(rotate_x, &glm::vec3(1.0, 0.0, 0.0));
+            let uniform: glm::Mat4 =
+                perspective * rotation_x * rotation_y * translation * glm::identity();
+            unsafe {
+                gl::UniformMatrix4fv(0, 1, 0, uniform.as_ptr());
+            }
 
             unsafe {
                 // Clear the color and depth buffers
@@ -293,7 +348,7 @@ fn main() {
 
                 // Issue draw calls
                 gl::BindVertexArray(my_vao);
-                gl::DrawElements(gl::TRIANGLES, 18, gl::UNSIGNED_INT, ptr::null());
+                gl::DrawElements(gl::TRIANGLES, 9, gl::UNSIGNED_INT, ptr::null());
             }
 
             // Display the new color buffer on the display
