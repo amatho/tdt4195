@@ -7,12 +7,10 @@
 #![allow(unused_unsafe)]
 #![allow(unused_variables)]
 */
-extern crate nalgebra_glm as glm;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::{mem, os::raw::c_void, ptr};
-
+mod mesh;
+mod scene_graph;
 mod shader;
+mod toolbox;
 mod util;
 
 use glutin::event::{
@@ -23,66 +21,23 @@ use glutin::event::{
     WindowEvent,
 };
 use glutin::event_loop::ControlFlow;
+use mesh::{Helicopter, Mesh, Terrain};
+use nalgebra_glm as glm;
+use scene_graph::SceneNode;
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+use std::{mem, os::raw::c_void, ptr};
 
 // initial window size
 const INITIAL_SCREEN_W: u32 = 800;
 const INITIAL_SCREEN_H: u32 = 600;
-
-#[repr(C)]
-struct Vertex {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-impl Vertex {
-    fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
-
-trait Index {}
-
-#[repr(C)]
-struct TriangleIndex {
-    v1: u32,
-    v2: u32,
-    v3: u32,
-}
-
-impl TriangleIndex {
-    fn new(v1: u32, v2: u32, v3: u32) -> Self {
-        Self { v1, v2, v3 }
-    }
-}
-
-impl Index for TriangleIndex {}
-
-#[repr(C)]
-struct Rgba {
-    red: f32,
-    green: f32,
-    blue: f32,
-    alpha: f32,
-}
-
-impl Rgba {
-    fn new(red: f32, green: f32, blue: f32, alpha: f32) -> Self {
-        Self {
-            red,
-            green,
-            blue,
-            alpha,
-        }
-    }
-}
 
 // == // Helper functions to make interacting with OpenGL a little bit prettier. You *WILL* need these! // == //
 
 // Get the size of an arbitrary array of numbers measured in bytes
 // Example usage:  pointer_to_array(my_array)
 fn size_of_slice<T>(val: &[T]) -> isize {
-    std::mem::size_of_val(&val[..]) as isize
+    std::mem::size_of_val(val) as isize
 }
 
 // Get the OpenGL-compatible pointer to an arbitrary array of numbers
@@ -93,7 +48,7 @@ fn slice_as_void_ptr<T>(val: &[T]) -> *const c_void {
 
 // Get an offset in bytes for n units of type T, represented as a relative pointer
 // Example usage:  offset::<u64>(4)
-fn offset<T>(n: u32) -> *const c_void {
+fn _offset<T>(n: u32) -> *const c_void {
     (n * mem::size_of::<T>() as u32) as *const T as *const c_void
 }
 
@@ -115,24 +70,107 @@ unsafe fn buffer_with_data<T>(target: gl::types::GLenum, data: &[T]) -> u32 {
     buf_id
 }
 
-// == // Generate your VAO here
-unsafe fn create_vao<T: Index>(vertices: &[Vertex], indices: &[T], colors: &[Rgba]) -> u32 {
-    // Implement me!
+/// Create a Vertex Array Object.
+unsafe fn create_vao(mesh: &Mesh) -> u32 {
     let mut vao_id = 0;
     gl::GenVertexArrays(1, &mut vao_id);
     gl::BindVertexArray(vao_id);
 
-    buffer_with_data(gl::ARRAY_BUFFER, vertices);
+    buffer_with_data(gl::ARRAY_BUFFER, &mesh.vertices);
     gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, ptr::null());
     gl::EnableVertexAttribArray(0);
 
-    buffer_with_data(gl::ARRAY_BUFFER, colors);
+    buffer_with_data(gl::ARRAY_BUFFER, &mesh.colors);
     gl::VertexAttribPointer(1, 4, gl::FLOAT, gl::FALSE, 0, ptr::null());
     gl::EnableVertexAttribArray(1);
 
-    buffer_with_data(gl::ELEMENT_ARRAY_BUFFER, indices);
+    buffer_with_data(gl::ARRAY_BUFFER, &mesh.normals);
+    gl::VertexAttribPointer(2, 3, gl::FLOAT, gl::FALSE, 0, ptr::null());
+    gl::EnableVertexAttribArray(2);
+
+    buffer_with_data(gl::ELEMENT_ARRAY_BUFFER, &mesh.indices);
 
     vao_id
+}
+
+/// Generates five helicopters, sharing the same VAOs.
+unsafe fn generate_helicopters(parent_node: &mut SceneNode) {
+    let helicopter = Helicopter::load("resources/helicopter.obj");
+
+    let body_vao = create_vao(&helicopter.body);
+    let door_vao = create_vao(&helicopter.door);
+    let main_rotor_vao = create_vao(&helicopter.main_rotor);
+    let tail_rotor_vao = create_vao(&helicopter.tail_rotor);
+
+    for _ in 0..5 {
+        let mut body = SceneNode::from_vao(body_vao, helicopter.body.index_count);
+        let mut door = SceneNode::from_vao(door_vao, helicopter.door.index_count);
+        // Seems to be a OK guess
+        door.reference_point = glm::vec3(1.0, 1.5, 0.0);
+        let mut main_rotor = SceneNode::from_vao(main_rotor_vao, helicopter.main_rotor.index_count);
+        // Not needed if we only want rotation around the Y-axis
+        main_rotor.reference_point = glm::vec3(0.0, 2.3, 0.0);
+        let mut tail_rotor = SceneNode::from_vao(tail_rotor_vao, helicopter.tail_rotor.index_count);
+        tail_rotor.reference_point = glm::vec3(0.35, 2.3, 10.4);
+
+        parent_node.add_child(&body);
+        body.add_child(&door);
+        body.add_child(&main_rotor);
+        body.add_child(&tail_rotor);
+    }
+}
+
+/// Animates each of the five helicopters.
+unsafe fn animate_helicopters(parent_node: &mut SceneNode, elapsed: f32, delta_time: f32) {
+    for i in 0..parent_node.get_n_children() {
+        let body = parent_node.get_child(i);
+        let main_rotor = body.get_child(1);
+        main_rotor.rotation.y += delta_time;
+        let tail_rotor = body.get_child(2);
+        tail_rotor.rotation.x += delta_time;
+        let heading = toolbox::simple_heading_animation(elapsed + i as f32 * 0.7);
+        body.position.x = heading.x;
+        body.position.z = heading.z;
+        body.rotation.x = heading.pitch;
+        body.rotation.y = heading.yaw;
+        body.rotation.z = heading.roll;
+    }
+}
+
+/// Traverses the scene graph and draws the nodes.
+unsafe fn draw_scene(node: &SceneNode, view_projection: &glm::Mat4, parent_model: glm::Mat4) {
+    let model_mat = if node.index_count > 0 {
+        let model_mat = glm::translation(&node.position)
+            * glm::translation(&node.reference_point)
+            * glm::rotation(node.rotation.x, &glm::vec3(1.0, 0.0, 0.0))
+            * glm::rotation(node.rotation.y, &glm::vec3(0.0, 1.0, 0.0))
+            * glm::rotation(node.rotation.z, &glm::vec3(0.0, 0.0, 1.0))
+            * glm::scaling(&node.scale)
+            * glm::translation(&-node.reference_point)
+            * glm::identity();
+
+        let total_model_mat = parent_model * model_mat;
+        let mvp = view_projection * total_model_mat;
+
+        gl::UniformMatrix4fv(0, 1, gl::FALSE, mvp.as_ptr());
+        gl::UniformMatrix4fv(1, 1, gl::FALSE, total_model_mat.as_ptr());
+
+        gl::BindVertexArray(node.vao_id);
+        gl::DrawElements(
+            gl::TRIANGLES,
+            node.index_count,
+            gl::UNSIGNED_INT,
+            ptr::null(),
+        );
+
+        total_model_mat
+    } else {
+        parent_model
+    };
+
+    for &child in &node.children {
+        draw_scene(&*child, view_projection, model_mat);
+    }
 }
 
 fn main() {
@@ -203,37 +241,18 @@ fn main() {
             );
         }
 
-        // Vertices for the three triangles.
-        // The z-coordinates take the perspective projection into account (they were the opposite way around
-        // before introducing the perspective projection).
-        let verts = vec![
-            Vertex::new(0.0, 0.9, -0.5),
-            Vertex::new(-0.7, -0.5, -0.5),
-            Vertex::new(0.7, -0.5, -0.5),
-            Vertex::new(0.0, 0.4, 0.0),
-            Vertex::new(-0.5, -0.7, 0.0),
-            Vertex::new(0.5, -0.7, 0.0),
-            Vertex::new(0.5, 0.4, 0.5),
-            Vertex::new(-0.5, 0.4, 0.5),
-            Vertex::new(0.0, -0.7, 0.5),
-        ];
-        let indices = vec![
-            TriangleIndex::new(0, 1, 2),
-            TriangleIndex::new(3, 4, 5),
-            TriangleIndex::new(6, 7, 8),
-        ];
-        let colors = vec![
-            Rgba::new(1.0, 0.0, 0.0, 0.5),
-            Rgba::new(1.0, 0.0, 0.0, 0.5),
-            Rgba::new(1.0, 0.0, 0.0, 0.5),
-            Rgba::new(0.0, 0.0, 1.0, 0.5),
-            Rgba::new(0.0, 0.0, 1.0, 0.5),
-            Rgba::new(0.0, 0.0, 1.0, 0.5),
-            Rgba::new(0.0, 1.0, 0.0, 0.5),
-            Rgba::new(0.0, 1.0, 0.0, 0.5),
-            Rgba::new(0.0, 1.0, 0.0, 0.5),
-        ];
-        let my_vao = unsafe { create_vao(&verts, &indices, &colors) };
+        let mut scene_root = SceneNode::new();
+
+        let mut helicopters = SceneNode::new();
+        unsafe {
+            generate_helicopters(&mut helicopters);
+        }
+        scene_root.add_child(&helicopters);
+
+        let terrain = Terrain::load("resources/lunarsurface.obj");
+        let lunar_terrain =
+            SceneNode::from_vao(unsafe { create_vao(&terrain) }, terrain.index_count);
+        scene_root.add_child(&lunar_terrain);
 
         // Setup the simple shader
         let _simple_shader = unsafe {
@@ -245,11 +264,11 @@ fn main() {
             s
         };
 
-        let perspective: glm::Mat4 = glm::perspective(window_aspect_ratio, 1.2915, 1.0, 100.0);
+        let mut perspective: glm::Mat4 = glm::perspective(window_aspect_ratio, 1.2915, 1.0, 1000.0);
 
         let mut translate_x = 0.0;
         let mut translate_y = 0.0;
-        let mut translate_z = -3.0;
+        let mut translate_z = 0.0;
         let mut rotate_x = 0.0;
         let mut rotate_y: f32 = 0.0;
 
@@ -268,6 +287,7 @@ fn main() {
                 if new_size.2 {
                     context.resize(glutin::dpi::PhysicalSize::new(new_size.0, new_size.1));
                     window_aspect_ratio = new_size.0 as f32 / new_size.1 as f32;
+                    perspective = glm::perspective(window_aspect_ratio, 1.2915, 1.0, 1000.0);
                     (*new_size).2 = false;
                     println!("Resized");
                     unsafe {
@@ -276,6 +296,8 @@ fn main() {
                 }
             }
 
+            const MOVEMENT_SPEED: f32 = 100.0;
+            const LOOK_SPEED: f32 = 1.0;
             // Handle keyboard input
             if let Ok(keys) = pressed_keys.lock() {
                 for key in keys.iter() {
@@ -283,39 +305,39 @@ fn main() {
                         // The `VirtualKeyCode` enum is defined here:
                         //    https://docs.rs/winit/0.25.0/winit/event/enum.VirtualKeyCode.html
                         VirtualKeyCode::A => {
-                            translate_x += delta_time * rotate_y.cos();
-                            translate_z += delta_time * rotate_y.sin();
+                            translate_x += MOVEMENT_SPEED * delta_time * rotate_y.cos();
+                            translate_z += MOVEMENT_SPEED * delta_time * rotate_y.sin();
                         }
                         VirtualKeyCode::D => {
-                            translate_x -= delta_time * rotate_y.cos();
-                            translate_z -= delta_time * rotate_y.sin();
+                            translate_x -= MOVEMENT_SPEED * delta_time * rotate_y.cos();
+                            translate_z -= MOVEMENT_SPEED * delta_time * rotate_y.sin();
                         }
                         VirtualKeyCode::W => {
-                            translate_x -= delta_time * rotate_y.sin();
-                            translate_z += delta_time * rotate_y.cos();
+                            translate_x -= MOVEMENT_SPEED * delta_time * rotate_y.sin();
+                            translate_z += MOVEMENT_SPEED * delta_time * rotate_y.cos();
                         }
                         VirtualKeyCode::S => {
-                            translate_x += delta_time * rotate_y.sin();
-                            translate_z -= delta_time * rotate_y.cos();
+                            translate_x += MOVEMENT_SPEED * delta_time * rotate_y.sin();
+                            translate_z -= MOVEMENT_SPEED * delta_time * rotate_y.cos();
                         }
                         VirtualKeyCode::Space => {
-                            translate_y -= delta_time;
+                            translate_y -= MOVEMENT_SPEED * delta_time;
                         }
                         VirtualKeyCode::LShift => {
-                            translate_y += delta_time;
+                            translate_y += MOVEMENT_SPEED * delta_time;
                         }
                         VirtualKeyCode::Left => {
-                            rotate_y -= delta_time;
+                            rotate_y -= LOOK_SPEED * delta_time;
                         }
                         VirtualKeyCode::Right => {
-                            rotate_y += delta_time;
+                            rotate_y += LOOK_SPEED * delta_time;
                         }
                         VirtualKeyCode::Up => {
-                            rotate_x -= delta_time;
+                            rotate_x -= LOOK_SPEED * delta_time;
                             rotate_x = rotate_x.clamp(-std::f32::consts::PI, std::f32::consts::PI);
                         }
                         VirtualKeyCode::Down => {
-                            rotate_x += delta_time;
+                            rotate_x += LOOK_SPEED * delta_time;
                             rotate_x = rotate_x.clamp(-std::f32::consts::PI, std::f32::consts::PI);
                         }
                         // default handler:
@@ -335,20 +357,18 @@ fn main() {
             let translation = glm::translation(&glm::vec3(translate_x, translate_y, translate_z));
             let rotation_y = glm::rotation(rotate_y, &glm::vec3(0.0, 1.0, 0.0));
             let rotation_x = glm::rotation(rotate_x, &glm::vec3(1.0, 0.0, 0.0));
-            let uniform: glm::Mat4 =
+            let view_matrix: glm::Mat4 =
                 perspective * rotation_x * rotation_y * translation * glm::identity();
-            unsafe {
-                gl::UniformMatrix4fv(0, 1, 0, uniform.as_ptr());
-            }
 
             unsafe {
+                animate_helicopters(&mut helicopters, elapsed, delta_time);
+
                 // Clear the color and depth buffers
                 gl::ClearColor(0.035, 0.046, 0.078, 1.0); // night sky, full opacity
                 gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
                 // Issue draw calls
-                gl::BindVertexArray(my_vao);
-                gl::DrawElements(gl::TRIANGLES, 9, gl::UNSIGNED_INT, ptr::null());
+                draw_scene(&scene_root, &view_matrix, glm::identity());
             }
 
             // Display the new color buffer on the display
