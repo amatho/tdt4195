@@ -1,79 +1,75 @@
-extern crate nalgebra_glm as glm;
+use nalgebra_glm as glm;
+use std::fmt;
 
-use std::mem::ManuallyDrop;
-use std::pin::Pin;
-
-// Used to create an unholy abomination upon which you should not cast your gaze. This ended up
-// being a necessity due to wanting to keep the code written by students as "straight forward" as
-// possible. It is very very double plus ungood Rust, and intentionally leaks memory like a sieve.
-// But it works, and you're more than welcome to pretend it doesn't exist! In case you're curious
-// about how it works: It allocates memory on the heap (Box), promises to prevent it from being
-// moved or deallocated until dropped (Pin) and finally prevents the compiler from dropping it
-// automatically at all (ManuallyDrop).
-// ...
-// If that sounds like a janky solution, it's because it is!
-// Prettier, Rustier and better solutions were tried numerous times, but were all found wanting of
-// having what I arbitrarily decided to be the required level of "simplicity of use".
-pub type Node = ManuallyDrop<Pin<Box<SceneNode>>>;
-
+/// The SceneNode data structure from the handout code, rewritten in safe Rust
 pub struct SceneNode {
-    pub position        : glm::Vec3,   // Where I should be in relation to my parent
-    pub rotation        : glm::Vec3,   // How I should be rotated, around the X, the Y and the Z axes
-    pub scale           : glm::Vec3,   // How I should be scaled
-    pub reference_point : glm::Vec3,   // The point I shall rotate and scale about
+    pub position: glm::Vec3,        // Where I should be in relation to my parent
+    pub rotation: glm::Vec3,        // How I should be rotated, around the X, the Y and the Z axes
+    pub scale: glm::Vec3,           // How I should be scaled
+    pub reference_point: glm::Vec3, // The point I shall rotate and scale about
 
-    pub vao_id      : u32,             // What I should draw
-    pub index_count : i32,             // How much of it there is to draw
+    pub vao_id: u32,      // What I should draw
+    pub index_count: i32, // How much of it there is to draw
 
-    pub children: Vec<*mut SceneNode>, // Those I command
+    children: Vec<SceneNode>, // Those I command
+}
+
+impl Default for SceneNode {
+    fn default() -> Self {
+        Self {
+            position: glm::zero(),
+            rotation: glm::zero(),
+            scale: glm::vec3(1.0, 1.0, 1.0),
+            reference_point: glm::zero(),
+            vao_id: 0,
+            index_count: -1,
+            children: Vec::new(),
+        }
+    }
 }
 
 impl SceneNode {
-
-    pub fn new() -> Node {
-        ManuallyDrop::new(Pin::new(Box::new(SceneNode {
-            position        : glm::zero(),
-            rotation        : glm::zero(),
-            scale           : glm::vec3(1.0, 1.0, 1.0),
-            reference_point : glm::zero(),
-            vao_id          : 0,
-            index_count     : -1,
-            children        : vec![],
-        })))
-    }
-
-    pub fn from_vao(vao_id: u32, index_count: i32) -> Node {
-        ManuallyDrop::new(Pin::new(Box::new(SceneNode {
-            position        : glm::zero(),
-            rotation        : glm::zero(),
-            scale           : glm::vec3(1.0, 1.0, 1.0),
-            reference_point : glm::zero(),
+    pub fn new(vao_id: u32, index_count: i32) -> Self {
+        Self {
+            position: glm::zero(),
+            rotation: glm::zero(),
+            scale: glm::vec3(1.0, 1.0, 1.0),
+            reference_point: glm::zero(),
             vao_id,
             index_count,
-            children: vec![],
-        })))
-    }
-
-    pub fn add_child(&mut self, child: &SceneNode) {
-        self.children.push(child as *const SceneNode as *mut SceneNode)
-    }
-
-    #[allow(dead_code)]
-    pub fn get_child(& mut self, index: usize) -> & mut SceneNode {
-        unsafe {
-            &mut (*self.children[index])
+            children: Vec::new(),
         }
     }
 
-    #[allow(dead_code)]
-    pub fn get_n_children(&self) -> usize {
-        self.children.len()
+    pub fn add_child(&mut self, child: SceneNode) {
+        self.children.push(child)
     }
 
     #[allow(dead_code)]
-    pub fn print(&self) {
-        println!(
-"SceneNode {{
+    pub fn get_child_mut(&mut self, index: usize) -> Option<&mut SceneNode> {
+        self.children.get_mut(index)
+    }
+
+    /// Returns the number of children of this node.
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.children.len()
+    }
+    
+    pub fn iter(&self) -> impl Iterator<Item = &SceneNode> {
+        self.children.iter()
+    }
+    
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut SceneNode> {
+        self.children.iter_mut()
+    }
+}
+
+impl fmt::Debug for SceneNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "SceneNode {{
     VAO:       {}
     Indices:   {}
     Children:  {}
@@ -93,26 +89,6 @@ impl SceneNode {
             self.reference_point.x,
             self.reference_point.y,
             self.reference_point.z,
-        );
-    }
-
-}
-
-
-// You can also use square brackets to access the children of a SceneNode
-use std::ops::{Index, IndexMut};
-impl Index<usize> for SceneNode {
-    type Output = SceneNode;
-    fn index(&self, index: usize) -> &SceneNode {
-        unsafe {
-            & *(self.children[index] as *const SceneNode)
-        }
-    }
-}
-impl IndexMut<usize> for SceneNode {
-    fn index_mut(&mut self, index: usize) -> &mut SceneNode {
-        unsafe {
-            &mut (*self.children[index])
-        }
+        )
     }
 }

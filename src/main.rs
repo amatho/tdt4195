@@ -13,47 +13,32 @@ mod shader;
 mod toolbox;
 mod util;
 
-use glutin::event::{
-    DeviceEvent,
-    ElementState::{Pressed, Released},
-    Event, KeyboardInput,
-    VirtualKeyCode::{self, *},
-    WindowEvent,
+use glutin::{
+    event::{
+        DeviceEvent,
+        ElementState::{Pressed, Released},
+        Event, KeyboardInput,
+        VirtualKeyCode::{self, *},
+        WindowEvent,
+    },
+    event_loop::ControlFlow,
 };
-use glutin::event_loop::ControlFlow;
 use mesh::{Helicopter, Mesh, Terrain};
 use nalgebra_glm as glm;
 use scene_graph::SceneNode;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::{mem, os::raw::c_void, ptr};
+use std::{
+    mem,
+    os::raw::c_void,
+    ptr,
+    sync::{Arc, Mutex, RwLock},
+    thread,
+};
 
 // initial window size
 const INITIAL_SCREEN_W: u32 = 800;
 const INITIAL_SCREEN_H: u32 = 600;
-
-// == // Helper functions to make interacting with OpenGL a little bit prettier. You *WILL* need these! // == //
-
-// Get the size of an arbitrary array of numbers measured in bytes
-// Example usage:  pointer_to_array(my_array)
-fn size_of_slice<T>(val: &[T]) -> isize {
-    std::mem::size_of_val(val) as isize
-}
-
-// Get the OpenGL-compatible pointer to an arbitrary array of numbers
-// Example usage:  pointer_to_array(my_array)
-fn slice_as_void_ptr<T>(val: &[T]) -> *const c_void {
-    &val[0] as *const T as *const c_void
-}
-
-// Get an offset in bytes for n units of type T, represented as a relative pointer
-// Example usage:  offset::<u64>(4)
-fn _offset<T>(n: u32) -> *const c_void {
-    (n * mem::size_of::<T>() as u32) as *const T as *const c_void
-}
-
-// Get a null pointer (equivalent to an offset of 0)
-// ptr::null()
+const MOVEMENT_SPEED: f32 = 100.0;
+const LOOK_SPEED: f32 = 1.0;
 
 /// Create a new buffer, bind it, and fill it with the given data
 unsafe fn buffer_with_data<T>(target: gl::types::GLenum, data: &[T]) -> u32 {
@@ -62,8 +47,8 @@ unsafe fn buffer_with_data<T>(target: gl::types::GLenum, data: &[T]) -> u32 {
     gl::BindBuffer(target, buf_id);
     gl::BufferData(
         target,
-        size_of_slice(data),
-        slice_as_void_ptr(data),
+        mem::size_of_val(data) as isize,
+        data.as_ptr() as *const c_void,
         gl::STATIC_DRAW,
     );
 
@@ -103,37 +88,39 @@ unsafe fn generate_helicopters(parent_node: &mut SceneNode) {
     let tail_rotor_vao = create_vao(&helicopter.tail_rotor);
 
     for _ in 0..5 {
-        let mut body = SceneNode::from_vao(body_vao, helicopter.body.index_count);
-        let mut door = SceneNode::from_vao(door_vao, helicopter.door.index_count);
+        let mut body = SceneNode::new(body_vao, helicopter.body.index_count);
+        let mut door = SceneNode::new(door_vao, helicopter.door.index_count);
+        let mut main_rotor = SceneNode::new(main_rotor_vao, helicopter.main_rotor.index_count);
+        let mut tail_rotor = SceneNode::new(tail_rotor_vao, helicopter.tail_rotor.index_count);
+
         // Seems to be a OK guess
         door.reference_point = glm::vec3(1.0, 1.5, 0.0);
-        let mut main_rotor = SceneNode::from_vao(main_rotor_vao, helicopter.main_rotor.index_count);
         // Not needed if we only want rotation around the Y-axis
         main_rotor.reference_point = glm::vec3(0.0, 2.3, 0.0);
-        let mut tail_rotor = SceneNode::from_vao(tail_rotor_vao, helicopter.tail_rotor.index_count);
         tail_rotor.reference_point = glm::vec3(0.35, 2.3, 10.4);
 
-        parent_node.add_child(&body);
-        body.add_child(&door);
-        body.add_child(&main_rotor);
-        body.add_child(&tail_rotor);
+        body.add_child(door);
+        body.add_child(main_rotor);
+        body.add_child(tail_rotor);
+        parent_node.add_child(body);
     }
 }
 
 /// Animates each of the five helicopters.
-unsafe fn animate_helicopters(parent_node: &mut SceneNode, elapsed: f32, delta_time: f32) {
-    for i in 0..parent_node.get_n_children() {
-        let body = parent_node.get_child(i);
-        let main_rotor = body.get_child(1);
+fn animate_helicopters(parent_node: &mut SceneNode, elapsed: f32, delta_time: f32) {
+    for (i, heli_body) in parent_node.iter_mut().enumerate() {
+        let main_rotor = heli_body.get_child_mut(1).expect("missing main rotor");
         main_rotor.rotation.y += delta_time;
-        let tail_rotor = body.get_child(2);
+
+        let tail_rotor = heli_body.get_child_mut(2).expect("missing tail rotor");
         tail_rotor.rotation.x += delta_time;
+
         let heading = toolbox::simple_heading_animation(elapsed + i as f32 * 0.7);
-        body.position.x = heading.x;
-        body.position.z = heading.z;
-        body.rotation.x = heading.pitch;
-        body.rotation.y = heading.yaw;
-        body.rotation.z = heading.roll;
+        heli_body.position.x = heading.x;
+        heli_body.position.z = heading.z;
+        heli_body.rotation.x = heading.pitch;
+        heli_body.rotation.y = heading.yaw;
+        heli_body.rotation.z = heading.roll;
     }
 }
 
@@ -168,8 +155,8 @@ unsafe fn draw_scene(node: &SceneNode, view_projection: &glm::Mat4, parent_model
         parent_model
     };
 
-    for &child in &node.children {
-        draw_scene(&*child, view_projection, model_mat);
+    for child in node.iter() {
+        draw_scene(child, view_projection, model_mat);
     }
 }
 
@@ -241,18 +228,17 @@ fn main() {
             );
         }
 
-        let mut scene_root = SceneNode::new();
-
-        let mut helicopters = SceneNode::new();
+        let mut helicopters = SceneNode::default();
         unsafe {
             generate_helicopters(&mut helicopters);
         }
-        scene_root.add_child(&helicopters);
 
         let terrain = Terrain::load("resources/lunarsurface.obj");
-        let lunar_terrain =
-            SceneNode::from_vao(unsafe { create_vao(&terrain) }, terrain.index_count);
-        scene_root.add_child(&lunar_terrain);
+        let lunar_terrain = SceneNode::new(unsafe { create_vao(&terrain) }, terrain.index_count);
+
+        let mut scene_root = SceneNode::default();
+        scene_root.add_child(helicopters);
+        scene_root.add_child(lunar_terrain);
 
         // Setup the simple shader
         let _simple_shader = unsafe {
@@ -288,7 +274,7 @@ fn main() {
                     context.resize(glutin::dpi::PhysicalSize::new(new_size.0, new_size.1));
                     window_aspect_ratio = new_size.0 as f32 / new_size.1 as f32;
                     perspective = glm::perspective(window_aspect_ratio, 1.2915, 1.0, 1000.0);
-                    (*new_size).2 = false;
+                    new_size.2 = false;
                     println!("Resized");
                     unsafe {
                         gl::Viewport(0, 0, new_size.0 as i32, new_size.1 as i32);
@@ -296,8 +282,6 @@ fn main() {
                 }
             }
 
-            const MOVEMENT_SPEED: f32 = 100.0;
-            const LOOK_SPEED: f32 = 1.0;
             // Handle keyboard input
             if let Ok(keys) = pressed_keys.lock() {
                 for key in keys.iter() {
@@ -360,9 +344,15 @@ fn main() {
             let view_matrix: glm::Mat4 =
                 perspective * rotation_x * rotation_y * translation * glm::identity();
 
-            unsafe {
-                animate_helicopters(&mut helicopters, elapsed, delta_time);
+            animate_helicopters(
+                scene_root
+                    .get_child_mut(0)
+                    .expect("helicopters root missing"),
+                elapsed,
+                delta_time,
+            );
 
+            unsafe {
                 // Clear the color and depth buffers
                 gl::ClearColor(0.035, 0.046, 0.078, 1.0); // night sky, full opacity
                 gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
@@ -384,7 +374,7 @@ fn main() {
     let render_thread_healthy = Arc::new(RwLock::new(true));
     let render_thread_watchdog = Arc::clone(&render_thread_healthy);
     thread::spawn(move || {
-        if !render_thread.join().is_ok() {
+        if render_thread.join().is_err() {
             if let Ok(mut health) = render_thread_watchdog.write() {
                 println!("Render thread panicked!");
                 *health = false;
@@ -398,7 +388,7 @@ fn main() {
 
         // Terminate program if render thread panics
         if let Ok(health) = render_thread_healthy.read() {
-            if *health == false {
+            if !(*health) {
                 *control_flow = ControlFlow::Exit;
             }
         }
