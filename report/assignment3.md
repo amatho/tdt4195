@@ -36,6 +36,14 @@ See the corresponding figure.
 
 ![The rendered scene of task 2c).](images/as3/task2c.png)
 
+# Task 4
+
+## a)
+
+The helicopter's main and tail rotors might spin at weird speeds. I had to work on
+this assignment via SSH with X-forwarding, which effectively gave me 2 FPS... (probably
+because of being in the US and using hotel Wi-Fi :p)
+
 # Task 5
 
 ## a)
